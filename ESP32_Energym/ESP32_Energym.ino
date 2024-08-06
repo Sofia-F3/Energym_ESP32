@@ -88,16 +88,77 @@ void setup() {
   Serial.print(uid);
 }
 
+#define INIT 0
+#define CONTAR 1
+#define ENVIAR 2
+#define REINICIAR 3
+int estado = 0;
+
+int voltaje = 12;
+int corriente = 10;
+int ultCorriente = 5;
+int cantDatos = 0;
+int tiempoCambioDatos = 0;
+float tiempo = 0;
+int numDato = 0;
+int energy[] = {};
+int sumatoria = 0;
+int cicloActual = 1;
+int medicion = 0;
+
 void loop() {
   if (Firebase.isTokenExpired()) {
     Firebase.refreshToken(&config);
     Serial.println("Refresh token");
   }
+  if (Serial.available()) {
+    corriente = medirCorriente();
+  }
+  maquina();
+  Serial.println(tiempo);
+}
 
+void maquina() {
+  switch (estado) {
+    case INIT:
+      tiempoCambioDatos = millis();
+      estado = CONTAR;
+      break;
+
+    case CONTAR:
+      if ((ultCorriente - corriente > 2) || (ultCorriente - corriente < -2)) {
+        ultCorriente = corriente;
+        tiempo = millis() - tiempoCambioDatos;
+        energy[numDato] = voltaje * corriente / tiempo;
+        numDato = numDato + 1;
+        estado = INIT;
+      }
+      if (millis() >= (60000 * cicloActual)) {
+        estado = ENVIAR;
+      }
+      break;
+
+    case ENVIAR:
+      for (byte i = 0; i < (sizeof(energy) / sizeof(energy[0])); i++) {
+        sumatoria = sumatoria + energy[i];
+      }
+      enviarDatos();
+      estado = REINICIAR;
+      break;
+
+    case REINICIAR:
+      numDato = 0;
+      cicloActual = cicloActual + 1;
+      estado = INIT;
+      break;
+  }
+}
+
+void enviarDatos() {
   if (Firebase.ready() && (millis() - sendDataPrevMillis > 15000 || sendDataPrevMillis == 0)) {
     sendDataPrevMillis = millis();
     // Write an Int number on the database path test/int
-    if (Firebase.RTDB.setInt(&fbdo, "users/" + uid + "/Energy", count)) {
+    if (Firebase.RTDB.setInt(&fbdo, "users/" + uid + "/Energy", sumatoria)) {
       Serial.println("PASSED");
       Serial.println("PATH: " + fbdo.dataPath());
       Serial.println("TYPE: " + fbdo.dataType());
@@ -105,6 +166,10 @@ void loop() {
       Serial.println("FAILED");
       Serial.println("REASON: " + fbdo.errorReason());
     }
-    count++;
   }
+}
+
+int medirCorriente() {
+  medicion = Serial.parseInt();
+  return medicion;
 }
